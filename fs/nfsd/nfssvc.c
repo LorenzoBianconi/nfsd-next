@@ -1149,3 +1149,84 @@ int nfsd_pool_stats_release(struct inode *inode, struct file *file)
 	mutex_unlock(&nfsd_mutex);
 	return ret;
 }
+
+static int nfsd_rpc_status_show(struct seq_file *m, void *v)
+{
+	struct inode *inode = file_inode(m->file);
+	struct nfsd_net *nn = net_generic(inode->i_sb->s_fs_info, nfsd_net_id);
+	int i;
+
+	rcu_read_lock();
+
+	for (i = 0; i < nn->nfsd_serv->sv_nrpools; i++) {
+		struct svc_rqst *rqstp;
+
+		list_for_each_entry_rcu(rqstp,
+				&nn->nfsd_serv->sv_pools[i].sp_all_threads,
+				rq_all) {
+			if (!test_bit(RQ_BUSY, &rqstp->rq_flags))
+				continue;
+
+			seq_printf(m,
+				   "0x%08x 0x%08lx 0x%08x NFSv%d %s %016lld",
+				   be32_to_cpu(rqstp->rq_xid), rqstp->rq_flags,
+				   rqstp->rq_prog, rqstp->rq_vers,
+				   svc_proc_name(rqstp),
+				   ktime_to_us(rqstp->rq_stime));
+
+			if (rqstp->rq_addr.ss_family == AF_INET)
+				seq_printf(m, " %pI4 %pI4 ",
+					   &((struct sockaddr_in *)&rqstp->rq_addr)->sin_addr,
+					   &((struct sockaddr_in *)&rqstp->rq_daddr)->sin_addr);
+			else if (rqstp->rq_addr.ss_family == AF_INET6)
+				seq_printf(m, " %pI6 %pI6 ",
+					   &((struct sockaddr_in6 *)&rqstp->rq_addr)->sin6_addr,
+					   &((struct sockaddr_in6 *)&rqstp->rq_daddr)->sin6_addr);
+			else
+				seq_printf(m, " unknown:%hu",
+					   rqstp->rq_addr.ss_family);
+#ifdef CONFIG_NFSD_V4
+			if (rqstp->rq_vers == NFS4_VERSION &&
+			    rqstp->rq_proc == NFSPROC4_COMPOUND) {
+				/* NFSv4 compund */
+				struct nfsd4_compoundargs *args = rqstp->rq_argp;
+				struct nfsd4_compoundres *resp = rqstp->rq_resp;
+
+				while (resp->opcnt < args->opcnt) {
+					struct nfsd4_op *op = &args->ops[resp->opcnt++];
+
+					seq_printf(m, " %s", nfsd4_op_name(op->opnum));
+				}
+			}
+#endif /* CONFIG_NFSD_V4 */
+			seq_puts(m, "\n");
+		}
+	}
+
+	rcu_read_unlock();
+
+	return 0;
+}
+
+/**
+ * nfsd_rpc_status_open - Atomically copy a write verifier
+ * @inode: entry inode pointer.
+ * @file: entry file pointer.
+ *
+ * This routine dumps pending RPC requests info queued into nfs server.
+ */
+int nfsd_rpc_status_open(struct inode *inode, struct file *file)
+{
+	struct nfsd_net *nn = net_generic(inode->i_sb->s_fs_info, nfsd_net_id);
+
+	mutex_lock(&nfsd_mutex);
+	if (!nn->nfsd_serv) {
+		mutex_unlock(&nfsd_mutex);
+		return -ENODEV;
+	}
+
+	svc_get(nn->nfsd_serv);
+	mutex_unlock(&nfsd_mutex);
+
+	return single_open(file, nfsd_rpc_status_show, inode->i_private);
+}
