@@ -17,6 +17,11 @@ const struct nla_policy nfsd_listener_nl_policy[NFSD_A_LISTENER_INET_PROTO + 1] 
 	[NFSD_A_LISTENER_INET_PROTO] = { .type = NLA_U16, },
 };
 
+const struct nla_policy nfsd_sock_nl_policy[NFSD_A_SOCK_TRANSPORT_NAME + 1] = {
+	[NFSD_A_SOCK_ADDR] = { .type = NLA_BINARY, },
+	[NFSD_A_SOCK_TRANSPORT_NAME] = { .type = NLA_NUL_STRING, },
+};
+
 const struct nla_policy nfsd_version_nl_policy[NFSD_A_VERSION_MINOR + 1] = {
 	[NFSD_A_VERSION_MAJOR] = { .type = NLA_U32, },
 	[NFSD_A_VERSION_MINOR] = { .type = NLA_U32, },
@@ -35,6 +40,11 @@ static const struct nla_policy nfsd_version_set_nl_policy[NFSD_A_SERVER_PROTO_VE
 /* NFSD_CMD_LISTENER_SET - do */
 static const struct nla_policy nfsd_listener_set_nl_policy[NFSD_A_SERVER_LISTENER_ADDR + 1] = {
 	[NFSD_A_SERVER_LISTENER_ADDR] = NLA_POLICY_NESTED(nfsd_listener_nl_policy),
+};
+
+/* NFSD_CMD_SOCK_SET - do */
+static const struct nla_policy nfsd_sock_set_nl_policy[NFSD_A_SERVER_SOCK_ADDR + 1] = {
+	[NFSD_A_SERVER_SOCK_ADDR] = NLA_POLICY_NESTED(nfsd_sock_nl_policy),
 };
 
 /* Ops table for nfsd */
@@ -81,6 +91,13 @@ static const struct genl_split_ops nfsd_nl_ops[] = {
 		.cmd	= NFSD_CMD_LISTENER_GET,
 		.doit	= nfsd_nl_listener_get_doit,
 		.flags	= GENL_CMD_CAP_DO,
+	},
+	{
+		.cmd		= NFSD_CMD_SOCK_SET,
+		.doit		= nfsd_nl_sock_set_doit,
+		.policy		= nfsd_sock_set_nl_policy,
+		.maxattr	= NFSD_A_SERVER_SOCK_ADDR,
+		.flags		= GENL_ADMIN_PERM | GENL_CMD_CAP_DO,
 	},
 };
 

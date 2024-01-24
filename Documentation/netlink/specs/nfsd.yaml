@@ -105,6 +105,23 @@ attribute-sets:
         type: nest
         nested-attributes: listener
         multi-attr: true
+  -
+    name: sock
+    attributes:
+      -
+        name: addr
+        type: binary
+      -
+        name: transport-name
+        type: string
+  -
+    name: server-sock
+    attributes:
+      -
+        name: addr
+        type: nest
+        nested-attributes: sock
+        multi-attr: true
 
 operations:
   list:
@@ -179,5 +196,14 @@ operations:
       attribute-set: server-listener
       do:
         reply:
+          attributes:
+            - addr
+    -
+      name: sock-set
+      doc: set nfs running sockets
+      attribute-set: server-sock
+      flags: [ admin-perm ]
+      do:
+        request:
           attributes:
             - addr

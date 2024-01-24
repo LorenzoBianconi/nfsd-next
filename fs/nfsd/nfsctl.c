@@ -1931,6 +1931,80 @@ int nfsd_nl_listener_set_doit(struct sk_buff *skb, struct genl_info *info)
 }
 
 /**
+ * nfsd_nl_sock_set_doit - set the nfs running sockets
+ * @skb: reply buffer
+ * @info: netlink metadata and command arguments
+ *
+ * Return 0 on success or a negative errno.
+ */
+int nfsd_nl_sock_set_doit(struct sk_buff *skb, struct genl_info *info)
+{
+	struct net *net = genl_info_net(info);
+	const struct nlattr *attr;
+	struct svc_serv *serv;
+	struct nfsd_net *nn;
+	int err, rem;
+
+	if (GENL_REQ_ATTR_CHECK(info, NFSD_A_SERVER_SOCK_ADDR))
+		return -EINVAL;
+
+	mutex_lock(&nfsd_mutex);
+
+	err = nfsd_create_serv(net);
+	if (err) {
+		mutex_unlock(&nfsd_mutex);
+		return err;
+	}
+
+	nn = net_generic(net, nfsd_net_id);
+	serv = nn->nfsd_serv;
+
+	nlmsg_for_each_attr(attr, info->nlhdr, GENL_HDRLEN, rem) {
+		struct nlattr *tb[ARRAY_SIZE(nfsd_sock_nl_policy)];
+		struct svc_xprt *xprt;
+		const char *xcl_name;
+		struct sockaddr *sa;
+
+		if (nla_type(attr) != NFSD_A_SERVER_SOCK_ADDR)
+			continue;
+
+		if (nla_parse_nested(tb, ARRAY_SIZE(tb), attr,
+				     nfsd_sock_nl_policy, info->extack) < 0)
+			continue;
+
+		if (!tb[NFSD_A_SOCK_ADDR] || !tb[NFSD_A_SOCK_TRANSPORT_NAME])
+			continue;
+
+		if (nla_len(tb[NFSD_A_SOCK_ADDR]) < sizeof(*sa))
+			continue;
+
+		xcl_name = nla_data(tb[NFSD_A_SOCK_TRANSPORT_NAME]);
+		sa = nla_data(tb[NFSD_A_SOCK_ADDR]);
+		xprt = svc_find_xprt(serv, xcl_name, net, sa->sa_family,
+				     svc_addr_port(sa));
+		if (xprt) {
+			svc_xprt_put(xprt);
+			continue;
+		}
+
+		err = svc_xprt_create_from_sa(serv, xcl_name, net, sa,
+					      SVC_SOCK_ANONYMOUS,
+					      get_current_cred());
+		if (err < 0) {
+			mutex_unlock(&nfsd_mutex);
+			return err;
+		}
+	}
+
+	if (!serv->sv_nrthreads && list_empty(&nn->nfsd_serv->sv_permsocks))
+		nfsd_destroy_serv(net);
+
+	mutex_unlock(&nfsd_mutex);
+
+	return 0;
+}
+
+/**
  * nfsd_nl_listener_get_doit - get the nfs running socket listeners
  * @skb: reply buffer
  * @info: netlink metadata and command arguments
